@@ -46,7 +46,7 @@ clean_env_json_yaml() {
 }
 
 # --- Input sumber repo ---
-read -rp "Masukkan URL repo sumber (contoh: https://github.com/hokagelegend9999/alpha.v2): " SRC_URL
+read -rp "Masukkan URL repo sumber (contoh: https://github.com/username/repo): " SRC_URL
 if [ -z "$SRC_URL" ]; then
   echo "Error: URL sumber tidak boleh kosong."
   exit 1
@@ -133,7 +133,7 @@ echo "Branch utama terdeteksi: $DEFAULT_BRANCH"
 
 # --- Input info GitHub ---
 echo
-read -rp "Masukkan username GitHub kamu (contoh: genznet): " GH_USER
+read -rp "Masukkan username GitHub kamu (contoh: username): " GH_USER
 if [ -z "$GH_USER" ]; then
   echo "Error: username GitHub tidak boleh kosong."
   exit 1
