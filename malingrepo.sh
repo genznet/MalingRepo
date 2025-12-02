@@ -2,7 +2,7 @@
 
 set -e
 
-echo "=== Skrip Auto Jadikan Repo Milik Kamu (v4: auto-fix folder, auto-push, .gitignore, auto-clean secrets) ==="
+echo "=== Skrip Auto Jadikan Repo Milik Kamu (v5: full secret cleaner) ==="
 
 # --- Cek dependency ---
 if ! command -v git >/dev/null 2>&1; then
@@ -12,13 +12,36 @@ fi
 
 echo
 
-# ==== FUNGSI: auto bersihkan secret di .env, .json, .yaml ====
+# ====== FUNGSI: Clean rclone.conf di semua folder ======
+clean_rclone_confs() {
+  echo
+  echo "=== Scan & bersihkan semua rclone.conf ==="
+  mapfile -t RCLONES < <(find . -type f -iname "rclone.conf" 2>/dev/null || true)
+
+  if [ "${#RCLONES[@]}" -eq 0 ]; then
+    echo "→ Tidak ada rclone.conf ditemukan. Lewati."
+    return
+  fi
+
+  for f in "${RCLONES[@]}"; do
+    echo "→ Membersihkan: $f"
+    # token = ...
+    sed -i -E 's/^([[:space:]]*token[[:space:]]*=[[:space:]]*).*/\1REDACTED_RCLONE_TOKEN/' "$f" 2>/dev/null || true
+    # refresh_token = ...
+    sed -i -E 's/^([[:space:]]*refresh_token[[:space:]]*=[[:space:]]*).*/\1REDACTED_RCLONE_REFRESH/' "$f" 2>/dev/null || true
+    # client_id = ...
+    sed -i -E 's/^([[:space:]]*client_id[[:space:]]*=[[:space:]]*).*/\1REDACTED_RCLONE_CLIENT_ID/' "$f" 2>/dev/null || true
+    # client_secret = ...
+    sed -i -E 's/^([[:space:]]*client_secret[[:space:]]*=[[:space:]]*).*/\1REDACTED_RCLONE_CLIENT_SECRET/' "$f" 2>/dev/null || true
+  done
+}
+
+# ====== FUNGSI: Clean .env /.json /.yaml secrets ======
 clean_env_json_yaml() {
   echo
   echo "=== Scan & bersihkan secret di .env / .json / .yaml ==="
 
-  # cari file target
-  mapfile -t FILES < <(find . -type f \( -name ".env" -o -name ".env.*" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" \))
+  mapfile -t FILES < <(find . -type f \( -name ".env" -o -name ".env.*" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" \) 2>/dev/null || true)
 
   if [ "${#FILES[@]}" -eq 0 ]; then
     echo "→ Tidak ada file .env / .json / .yaml yang ditemukan. Lewati."
@@ -27,18 +50,14 @@ clean_env_json_yaml() {
 
   for f in "${FILES[@]}"; do
     echo "→ Membersihkan: $f"
-
     case "$f" in
       *.env* )
-        # contoh: API_KEY=xxx / PASSWORD=yyy / JWT_SECRET = zzz
         sed -i -E 's/^([[:space:]]*[A-Za-z0-9_]*(SECRET|TOKEN|PASS(WORD)?|KEY)[A-Za-z0-9_]*[[:space:]]*=[[:space:]]*).*/\1REDACTED_ENV_VALUE/' "$f" 2>/dev/null || true
         ;;
       *.json )
-        # contoh: "apiKey": "xxx"
         sed -i -E 's/(".*(secret|token|pass(word)?|key).*"[[:space:]]*:[[:space:]]*").*"/\1"REDACTED_JSON_VALUE"/I' "$f" 2>/dev/null || true
         ;;
       *.yml|*.yaml )
-        # contoh: api_secret: xxxx
         sed -i -E 's/^([[:space:]]*.*(secret|token|pass(word)?|key).*:[[:space:]]*).*/\1REDACTED_YAML_VALUE/I' "$f" 2>/dev/null || true
         ;;
     esac
@@ -133,7 +152,7 @@ echo "Branch utama terdeteksi: $DEFAULT_BRANCH"
 
 # --- Input info GitHub ---
 echo
-read -rp "Masukkan username GitHub kamu (contoh: username): " GH_USER
+read -rp "Masukkan username GitHub kamu : " GH_USER
 if [ -z "$GH_USER" ]; then
   echo "Error: username GitHub tidak boleh kosong."
   exit 1
@@ -149,24 +168,14 @@ echo "=== Menambahkan / mengupdate remote origin ==="
 echo "Origin baru: $NEW_REPO_URL"
 git remote add origin "$NEW_REPO_URL" 2>/dev/null || git remote set-url origin "$NEW_REPO_URL"
 
-# --- Opsional: bersihkan secret khusus rclone.conf ---
+# --- Bersihkan semua rclone.conf ---
 echo
-read -rp "Bersihkan secret di config/rclone.conf juga? [y/N]: " CLEAN_RCLONE
+read -rp "Scan & bersihkan semua rclone.conf? [y/N]: " CLEAN_RCLONE
 if [[ "$CLEAN_RCLONE" =~ ^[Yy]$ ]]; then
-  echo
-  echo "=== Membersihkan secret di config/rclone.conf ==="
-  if [ -f "config/rclone.conf" ]; then
-    echo "→ Membersihkan config/rclone.conf ..."
-    sed -i 's/\(token *= *\).*/\1YOUR_TOKEN_HERE/' config/rclone.conf 2>/dev/null || true
-    sed -i 's/\(refresh_token *= *\).*/\1YOUR_REFRESH_TOKEN_HERE/' config/rclone.conf 2>/dev/null || true
-    sed -i 's/\(client_id *= *\).*/\1YOUR_CLIENT_ID_HERE/' config/rclone.conf 2>/dev/null || true
-    sed -i 's/\(client_secret *= *\).*/\1YOUR_CLIENT_SECRET_HERE/' config/rclone.conf 2>/dev/null || true
-  else
-    echo "→ Tidak ada file config/rclone.conf, lewati."
-  fi
+  clean_rclone_confs
 fi
 
-# --- Auto clean .env / .json / .yaml ---
+# --- Bersihkan .env / .json / .yaml ---
 echo
 read -rp "Scan & bersihkan secret di .env / .json / .yaml? [y/N]: " CLEAN_ENVJSON
 if [[ "$CLEAN_ENVJSON" =~ ^[Yy]$ ]]; then
@@ -228,13 +237,12 @@ EOF
   git add .gitignore
 fi
 
-# --- Commit perubahan pembersihan & .gitignore ---
 echo
 echo "=== Commit perubahan lokal (jika ada) sebelum reset history ==="
 git add . || true
 git commit -m "apply secret cleanup & gitignore" 2>/dev/null || echo "Tidak ada perubahan baru untuk di-commit."
 
-# --- Orphan branch (reset history) ---
+# --- Orphan reset (history baru bersih) ---
 echo
 read -rp "Reset history jadi 1 commit bersih (orphan branch)? [y/N]: " ORPHAN_ANS
 if [[ "$ORPHAN_ANS" =~ ^[Yy]$ ]]; then
